@@ -41,35 +41,53 @@ function StatCard({
 }
 
 export function StatsPanel() {
-  const { sessionCount, totalSessions, dailyGoal, streak, dailyHistory, settings } = useStore()
+  const todaySessions = useStore(s => s.todaySessions)
+  const totalSessions = useStore(s => s.totalSessions)
+  const dailyGoal = useStore(s => s.dailyGoal)
+  const streak = useStore(s => s.streak)
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const settings = useStore(s => s.settings)
 
   const { todayDisplay, weekHours, weekSessions, monthHours, monthSessions, dailyGoalPct, score } = useMemo(() => {
     const today = new Date().toISOString().split('T')[0]
     const todayEntry = dailyHistory.find(d => d.date === today)
-    const todayMins = (todayEntry?.focusMinutes ?? 0) + sessionCount * settings.pomodoroDuration
+    // todaySessions is the local counter (immediately updated on completion).
+    // dailyHistory may lag until the DB trigger fires. Use todaySessions as the
+    // primary count; use dailyHistory.focusMinutes only as a baseline when the
+    // DB entry exists, to avoid double-counting.
+    const todayMins = todayEntry
+      ? todayEntry.focusMinutes
+      : todaySessions * settings.pomodoroDuration
     const todayDisplay = todayMins >= 60 ? `${(todayMins / 60).toFixed(1)}h` : `${todayMins}m`
 
     const now = new Date()
     const weekDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now); d.setDate(d.getDate() - (6 - i)); return d.toISOString().split('T')[0]
     })
-    const weekSessions = weekDates.reduce((s, date) => s + (dailyHistory.find(d => d.date === date)?.sessions ?? 0), 0) + sessionCount
+    // For week/month: dailyHistory includes past days accurately. For today,
+    // use todaySessions (local counter) since dailyHistory may lag.
+    const pastWeekSessions = weekDates.slice(0, -1).reduce((s, date) => s + (dailyHistory.find(d => d.date === date)?.sessions ?? 0), 0)
+    const weekSessions = pastWeekSessions + todaySessions
     const weekHours = (weekSessions * settings.pomodoroDuration / 60).toFixed(1)
 
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
-    const monthSessions = dailyHistory.filter(d => d.date >= monthStart).reduce((s, d) => s + d.sessions, 0) + sessionCount
+    const pastMonthSessions = dailyHistory.filter(d => d.date >= monthStart && d.date !== today).reduce((s, d) => s + d.sessions, 0)
+    const monthSessions = pastMonthSessions + todaySessions
     const monthHours = (monthSessions * settings.pomodoroDuration / 60).toFixed(0)
 
-    const dailyGoalPct = Math.min(100, Math.round((sessionCount / dailyGoal) * 100))
+    const dailyGoalPct = Math.min(100, Math.round((todaySessions / dailyGoal) * 100))
 
     const recentDates = Array.from({ length: 7 }, (_, i) => {
       const d = new Date(now); d.setDate(d.getDate() - i); return d.toISOString().split('T')[0]
     })
-    const activeDays = recentDates.filter(date => (dailyHistory.find(d => d.date === date)?.sessions ?? 0) > 0).length + (sessionCount > 0 ? 1 : 0)
+    const activeDays = recentDates.filter(date => {
+      if (date === today) return todaySessions > 0
+      return (dailyHistory.find(d => d.date === date)?.sessions ?? 0) > 0
+    }).length
     const score = Math.round(((activeDays / 7) * 40) + (Math.min(100, (weekSessions / (dailyGoal * 7)) * 100) * 0.6))
 
     return { todayDisplay, weekHours, weekSessions, monthHours, monthSessions, dailyGoalPct, score }
-  }, [sessionCount, totalSessions, dailyGoal, streak, dailyHistory, settings.pomodoroDuration])
+  }, [todaySessions, totalSessions, dailyGoal, streak, dailyHistory, settings.pomodoroDuration])
 
   return (
     <div className="space-y-3">
@@ -80,7 +98,7 @@ export function StatsPanel() {
         </span>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard icon={Clock}     label="Focus today"  value={todayDisplay}        sub={`${sessionCount} sessions`} accent />
+        <StatCard icon={Clock}     label="Focus today"  value={todayDisplay}        sub={`${todaySessions} sessions`} accent />
         <StatCard icon={TrendingUp} label="This week"   value={`${weekHours}h`}      sub={`${weekSessions} sessions`} />
         <StatCard icon={Calendar}   label="This month"  value={`${monthHours}h`}     sub={`${monthSessions} sessions`} />
         <StatCard icon={Flame}      label="Streak"      value={`${streak}d`}         sub="days in a row" accent />

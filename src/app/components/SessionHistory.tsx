@@ -24,7 +24,7 @@ function isThisWeek(iso: string) {
 
 export function SessionHistory() {
   const [filter, setFilter] = useState<'today' | 'yesterday' | 'week'>('today')
-  const { sessionHistory } = useStore()
+  const sessionHistory = useStore(s => s.sessionHistory)
 
   const filtered = sessionHistory.filter(s => {
     if (filter === 'today') return isToday(s.completedAt)

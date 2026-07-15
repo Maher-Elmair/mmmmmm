@@ -11,7 +11,8 @@ const PRIORITY_DOT: Record<string, string> = {
 const QUEUE_LABELS = ['Now', 'Next', 'Then']
 
 export function FocusQueue() {
-  const { tasks, activeTaskId } = useStore()
+  const tasks = useStore(s => s.tasks)
+  const activeTaskId = useStore(s => s.activeTaskId)
 
   const pending = tasks.filter(t => t.status !== 'completed' && t.status !== 'archived')
   const activeIdx = pending.findIndex(t => t.id === activeTaskId)

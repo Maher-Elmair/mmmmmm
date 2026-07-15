@@ -8,7 +8,6 @@ import { toast } from 'sonner'
 import { useStore } from './stores/useStore'
 import { useAuthSession } from './hooks/useAuthSession'
 import { startSync, stopSync } from './lib/cloud/sync'
-import { MigrationDialog } from './components/MigrationDialog'
 
 import { Header } from './components/Header'
 import { PomodoroTimer } from './components/PomodoroTimer'
@@ -50,7 +49,7 @@ function Card({ children, className = '', id }: { children: ReactNode; className
 }
 
 function Dashboard() {
-  const { settings } = useStore()
+  const settings = useStore(s => s.settings)
 
   // Apply theme via class toggle. The pre-hydration script in app/layout.tsx
   // applies this synchronously on first paint; this useEffect keeps the class
@@ -80,8 +79,10 @@ function Dashboard() {
     return () => window.removeEventListener('focusflow:no-task', onNoTask)
   }, [])
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts (disabled in focus mode — FocusMode handles its own)
+  const isFocusMode = useStore((s) => s.isFocusMode)
   useEffect(() => {
+    if (isFocusMode) return
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return
@@ -227,7 +228,6 @@ function AppShell() {
   return (
     <>
       <Dashboard />
-      <MigrationDialog />
       <Toaster richColors position="bottom-right" />
     </>
   )

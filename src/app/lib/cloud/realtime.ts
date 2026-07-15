@@ -18,7 +18,8 @@ import type { Task } from '@/app/domain/tasks/task.types'
 import type { NotificationItem, NotificationType } from '@/app/domain/notifications/notification.types'
 import type { DailyStats, SessionHistoryItem } from '@/app/domain/stats/stats.types'
 import { pullSettings } from './settingsSync'
-import { rowToTask } from './tasksSync'
+import { rowToTask, type DbTaskRow } from './tasksSync'
+import { computeStreak, computeTotalSessions } from '@/app/domain/stats/stats.rules'
 
 const channels: RealtimeChannel[] = []
 const echoes = new Map<string, number>()
@@ -43,22 +44,6 @@ function isRecentEcho(entity: string, entityId: string): boolean {
 }
 
 // ── Row-shape helpers ───────────────────────────────────────────────────────
-
-interface DbTaskRow {
-  id: string
-  user_id: string
-  title: string
-  description: string | null
-  notes: string | null
-  status: 'pending' | 'in_progress' | 'completed' | 'archived'
-  priority: Task['priority']
-  estimated_pomodoros: number | null
-  completed_pomodoros: number | null
-  completed_at: string | null
-  position: number | null
-  created_at: string
-  updated_at: string
-}
 
 function applyTaskEvent(payload: RealtimePostgresChangesPayload<DbTaskRow>) {
   const { eventType, new: newRow, old: oldRow } = payload
@@ -161,17 +146,27 @@ async function applySettingsEvent(userId: string) {
     // own state.
     const t = pulled.activeTimer
     const myDevice = getDeviceId()
+    const localTimerUpdatedAt = useStore.getState().lastTimerUpdatedAt
     if (t && t.deviceId && t.deviceId !== myDevice) {
-      patch.mode = t.mode
-      patch.timeLeft = t.timeLeft
-      patch.isRunning = t.isRunning
-      patch.sessionInProgress = t.sessionInProgress
-      patch.sessionStartedAt = t.sessionStartedAt
-      patch.activeTaskId = t.activeTaskId
-      patch.sessionCount = t.sessionCount ?? useStore.getState().sessionCount
+      // Skip if the remote snapshot is stale relative to local state.
+      if (localTimerUpdatedAt && t.updatedAt <= localTimerUpdatedAt) { /* skip */ } else {
+        patch.mode = t.mode
+        patch.timeLeft = t.timeLeft
+        patch.endAt = t.endAt
+        patch.isRunning = t.isRunning
+        patch.sessionInProgress = t.sessionInProgress
+        patch.sessionStartedAt = t.sessionStartedAt
+        patch.activeTaskId = t.activeTaskId
+        patch.sessionCount = t.sessionCount ?? useStore.getState().sessionCount
+        patch.lastTimerUpdatedAt = t.updatedAt
+      }
     }
     useStore.setState(patch as never)
   } catch (e) {
+    // Realtime events are fire-and-forget from the server — throwing would
+    // create unhandled promise rejections. Log and swallow; the next event
+    // will correct the state. Contrast with sync queue ops (tasksSync, etc.)
+    // which throw to trigger retry via flushQueue.
     console.warn('[realtime] settings apply failed', e)
   }
 }
@@ -201,8 +196,22 @@ async function refreshDailyStats(userId: string) {
       sessions: r.completed_sessions,
       focusMinutes: r.focus_minutes,
     }))
-    useStore.setState({ dailyHistory })
+
+    // Also sync todaySessions from the DB so Device B sees the updated count.
+    const today = new Date().toISOString().split('T')[0]
+    const todayEntry = dailyHistory.find((d) => d.date === today)
+
+    useStore.setState({
+      dailyHistory,
+      totalSessions: computeTotalSessions(dailyHistory),
+      streak: computeStreak(dailyHistory, 0),
+      // Use DB session count as source of truth for other devices.
+      // The completing device may have a higher local counter temporarily,
+      // but the DB trigger eventually reconciles.
+      ...(todayEntry ? { todaySessions: todayEntry.sessions } : {}),
+    })
   } catch (e) {
+    // Swallow — realtime refresh is best-effort; next event will retry.
     console.warn('[realtime] daily stats refresh failed', e)
   }
 }
@@ -225,19 +234,41 @@ async function applySessionEvent(payload: RealtimePostgresChangesPayload<DbSessi
   if (!row.completed) return
   if (isRecentEcho('session', row.id)) return
   const state = useStore.getState()
-  if (state.sessionHistory.some((s) => s.id === row.id)) return
-  const task = state.tasks.find((t) => t.id === row.task_id)
-  const item: SessionHistoryItem = {
-    id: row.id,
-    taskId: row.task_id,
-    taskTitle: task?.title ?? null,
-    mode: row.session_type === 'focus'
-      ? 'pomodoro'
-      : row.session_type === 'short_break' ? 'shortBreak' : 'longBreak',
-    duration: Math.round(row.duration_seconds / 60),
-    completedAt: row.ended_at ?? new Date().toISOString(),
+
+  // Dedup: if a local hist-* entry matches by taskId+mode+completedAt (within 5s),
+  // replace its ID with the Supabase UUID instead of creating a duplicate.
+  const remoteMode = row.session_type === 'focus'
+    ? 'pomodoro'
+    : row.session_type === 'short_break' ? 'shortBreak' : 'longBreak'
+  const remoteCompletedAt = row.ended_at ?? new Date().toISOString()
+  const localMatch = state.sessionHistory.find((s) =>
+    s.id.startsWith('hist-') &&
+    s.taskId === row.task_id &&
+    s.mode === remoteMode &&
+    Math.abs(new Date(s.completedAt).getTime() - new Date(remoteCompletedAt).getTime()) < 5000,
+  )
+
+  if (localMatch) {
+    // Replace local hist-* ID with the UUID. Don't add a new entry.
+    useStore.setState({
+      sessionHistory: state.sessionHistory.map((s) =>
+        s.id === localMatch.id ? { ...s, id: row.id } : s,
+      ),
+    })
+  } else {
+    if (state.sessionHistory.some((s) => s.id === row.id)) return
+    const task = state.tasks.find((t) => t.id === row.task_id)
+    const item: SessionHistoryItem = {
+      id: row.id,
+      taskId: row.task_id,
+      taskTitle: task?.title ?? null,
+      mode: remoteMode,
+      duration: Math.round(row.duration_seconds / 60),
+      completedAt: remoteCompletedAt,
+    }
+    useStore.setState({ sessionHistory: [item, ...state.sessionHistory].slice(0, 200) })
   }
-  useStore.setState({ sessionHistory: [item, ...state.sessionHistory].slice(0, 100) })
+
   // Stats will be refreshed by the daily_statistics trigger fanout.
   void refreshDailyStats(userId)
 }

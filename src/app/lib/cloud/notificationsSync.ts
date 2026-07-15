@@ -24,6 +24,10 @@ function fromDbType(
   t: DbNotificationType,
   fallback: NotificationType = 'session_complete',
 ): NotificationType {
+  // 'success' maps to task_complete; all other DB types (info, warning, error,
+  // reminder) fall back to session_complete — the most common notification type.
+  // Rows missing local_type in JSONB data (legacy, manual inserts) get this
+  // fallback, which is correct for the vast majority of cases.
   return t === 'success' ? 'task_complete' : fallback
 }
 

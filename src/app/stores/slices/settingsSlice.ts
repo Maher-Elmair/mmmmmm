@@ -10,6 +10,19 @@ export interface SettingsSlice {
   updateSettings: (partial: Partial<Settings>) => void
 }
 
+/** Builds the common settings sync payload from store state. */
+export function buildSettingsPayload(state: RootState) {
+  return {
+    settings: state.settings,
+    dailyGoal: state.dailyGoal,
+    weeklyGoal: state.weeklyGoal,
+    monthlyGoal: state.monthlyGoal,
+    soundVolume: state.soundVolume,
+    activeSounds: state.activeSounds,
+    userName: state.userName,
+  }
+}
+
 export const createSettingsSlice: StateCreator<RootState, [], [], SettingsSlice> = (set, get) => ({
   settings: DEFAULT_SETTINGS,
   updateSettings: (partial) => {
@@ -21,15 +34,6 @@ export const createSettingsSlice: StateCreator<RootState, [], [], SettingsSlice>
       patch.timeLeft = durationsFor(updated)[state.mode]
     }
     set(patch as RootState)
-    const next = get()
-    enqueueOp('setting', 'update', 'self', {
-      settings: updated,
-      dailyGoal: next.dailyGoal,
-      weeklyGoal: next.weeklyGoal,
-      monthlyGoal: next.monthlyGoal,
-      soundVolume: next.soundVolume,
-      activeSounds: next.activeSounds,
-      userName: next.userName,
-    })
+    enqueueOp('setting', 'update', 'self', buildSettingsPayload(get()))
   },
 })

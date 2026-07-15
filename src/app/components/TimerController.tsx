@@ -7,6 +7,7 @@ import { useStore } from '../stores/useStore'
 // switches tabs / minimizes the window.
 export function TimerController() {
   const isRunning = useStore(s => s.isRunning)
+  const endAt = useStore(s => s.endAt)
   const completeSession = useStore(s => s.completeSession)
   const setTimeLeft = useStore(s => s.setTimeLeft)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -18,9 +19,14 @@ export function TimerController() {
       if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null }
       return
     }
-    // Anchor: capture how much time should remain at wall-clock T0
+    // Use the persisted endAt from the store if available, otherwise compute from timeLeft.
+    // endAt is included as a dependency so that when a remote device changes the
+    // timer via realtime, the wall-clock anchor re-syncs automatically.
+    const storeEndAt = useStore.getState().endAt
     const startRemaining = useStore.getState().timeLeft
-    endAtRef.current = Date.now() + startRemaining * 1000
+    endAtRef.current = storeEndAt && storeEndAt > Date.now()
+      ? storeEndAt
+      : Date.now() + startRemaining * 1000
 
     const tick = () => {
       const endAt = endAtRef.current
@@ -52,7 +58,7 @@ export function TimerController() {
       document.removeEventListener('visibilitychange', onVis)
       window.removeEventListener('focus', onVis)
     }
-  }, [isRunning])
+  }, [isRunning, endAt])
 
   // Tab title — independent updater driven from wall-clock anchor, so it stays
   // accurate even when React skips renders in a background tab.

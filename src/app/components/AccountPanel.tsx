@@ -47,7 +47,11 @@ function timeAgo(ts: number | null): string {
 }
 
 export function AccountPanel() {
-  const { isAccountPanelOpen, setAccountPanelOpen, setSettingsOpen, userName, setUserName } = useStore()
+  const isAccountPanelOpen = useStore(s => s.isAccountPanelOpen)
+  const setAccountPanelOpen = useStore(s => s.setAccountPanelOpen)
+  const setSettingsOpen = useStore(s => s.setSettingsOpen)
+  const userName = useStore(s => s.userName)
+  const setUserName = useStore(s => s.setUserName)
   const { user, loading } = useAuthSession()
   const { status, lastSyncedAt } = useSyncStatus()
 
@@ -85,8 +89,6 @@ export function AccountPanel() {
       if (metaName && metaName !== userName) setUserName(metaName)
     }
   }, [user, userName, setUserName])
-
-  useEffect(() => { setDraft(userName) }, [userName])
 
   const displayEmail = user?.email ?? 'Local account'
   const provider = (user?.app_metadata?.provider as string | undefined) ?? 'email'
@@ -190,6 +192,7 @@ export function AccountPanel() {
               {editing ? (
                 <div className="flex items-center gap-1.5">
                   <Input
+                    key={userName}
                     autoFocus
                     value={draft}
                     onChange={e => setDraft(e.target.value)}

@@ -20,11 +20,18 @@ const MODE_COLORS = {
 }
 
 export function PomodoroTimer() {
-  const {
-    mode, timeLeft, isRunning, sessionCount, settings, streak,
-    setMode, requestStart, resetTimer, setFocusMode,
-    activeTaskId, tasks,
-  } = useStore()
+  const mode = useStore(s => s.mode)
+  const timeLeft = useStore(s => s.timeLeft)
+  const isRunning = useStore(s => s.isRunning)
+  const sessionCount = useStore(s => s.sessionCount)
+  const settings = useStore(s => s.settings)
+  const streak = useStore(s => s.streak)
+  const activeTaskId = useStore(s => s.activeTaskId)
+  const tasks = useStore(s => s.tasks)
+  const setMode = useStore(s => s.setMode)
+  const requestStart = useStore(s => s.requestStart)
+  const resetTimer = useStore(s => s.resetTimer)
+  const setFocusMode = useStore(s => s.setFocusMode)
 
   const totalTime = {
     pomodoro: settings.pomodoroDuration * 60,

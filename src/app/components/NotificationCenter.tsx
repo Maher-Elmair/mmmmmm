@@ -69,13 +69,21 @@ function NotifRow({ item, onDismiss }: { item: NotificationItem; onDismiss: () =
 
 // ─── Live Status (subscribes to timer state — only renders when panel is open)
 function LiveStatus() {
-  const { mode, timeLeft, isRunning, sessionCount, dailyGoal, activeTaskId, tasks, settings, dailyHistory } = useStore()
+  const mode = useStore(s => s.mode)
+  const timeLeft = useStore(s => s.timeLeft)
+  const isRunning = useStore(s => s.isRunning)
+  const todaySessions = useStore(s => s.todaySessions)
+  const dailyGoal = useStore(s => s.dailyGoal)
+  const activeTaskId = useStore(s => s.activeTaskId)
+  const tasks = useStore(s => s.tasks)
+  const settings = useStore(s => s.settings)
+  const dailyHistory = useStore(s => s.dailyHistory)
   const activeTask = tasks.find(t => t.id === activeTaskId)
   const mins = Math.floor(timeLeft / 60).toString().padStart(2, '0')
   const secs = (timeLeft % 60).toString().padStart(2, '0')
   const modeLabel = { pomodoro: 'Focus', shortBreak: 'Short Break', longBreak: 'Long Break' }[mode]
   const today = new Date().toISOString().split('T')[0]
-  const todayMins = ((dailyHistory.find(d => d.date === today)?.focusMinutes) ?? 0) + sessionCount * settings.pomodoroDuration
+  const todayMins = ((dailyHistory.find(d => d.date === today)?.focusMinutes) ?? 0) + todaySessions * settings.pomodoroDuration
 
   return (
     <div className="rounded-xl border border-border bg-card/60 overflow-hidden">
@@ -111,7 +119,7 @@ function LiveStatus() {
           </div>
           <div className="rounded-lg bg-secondary/50 px-2.5 py-2 text-center">
             <p className="text-foreground tabular-nums" style={{ fontFamily: "var(--font-jetbrains-mono), monospace", fontWeight: 700, fontSize: '1rem' }}>
-              {sessionCount}/{dailyGoal}
+              {todaySessions}/{dailyGoal}
             </p>
             <p className="text-muted-foreground" style={{ fontSize: '0.65rem' }}>Sessions</p>
           </div>
@@ -122,10 +130,10 @@ function LiveStatus() {
 }
 
 export function NotificationCenter() {
-  const {
-    isNotificationCenterOpen, setNotificationCenterOpen,
-    notifications, markAllNotificationsRead,
-  } = useStore()
+  const isNotificationCenterOpen = useStore(s => s.isNotificationCenterOpen)
+  const setNotificationCenterOpen = useStore(s => s.setNotificationCenterOpen)
+  const notifications = useStore(s => s.notifications)
+  const markAllNotificationsRead = useStore(s => s.markAllNotificationsRead)
 
   // Clear a single notification (local dismiss via store)
   const dismiss = (id: string) => {

@@ -523,7 +523,10 @@ const FACTORIES: Record<string, Factory> = {
 };
 
 export function BackgroundSounds() {
-  const { activeSounds, soundVolume, toggleSound, setSoundVolume } = useStore();
+  const activeSounds = useStore(s => s.activeSounds);
+  const soundVolume = useStore(s => s.soundVolume);
+  const toggleSound = useStore(s => s.toggleSound);
+  const setSoundVolume = useStore(s => s.setSoundVolume);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const whiteRef = useRef<AudioBuffer | null>(null);
   const pinkRef = useRef<AudioBuffer | null>(null);

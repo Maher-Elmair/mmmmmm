@@ -16,7 +16,10 @@ interface Achievement {
 }
 
 export function AchievementsPanel() {
-  const { totalSessions, streak, sessionCount, dailyGoal } = useStore()
+  const totalSessions = useStore(s => s.totalSessions)
+  const streak = useStore(s => s.streak)
+  const todaySessions = useStore(s => s.todaySessions)
+  const dailyGoal = useStore(s => s.dailyGoal)
 
   const achievements: Achievement[] = [
     { id: 'first',   icon: Timer,     label: 'First Focus',   description: 'Complete your first session',       unlocked: totalSessions >= 1,   progress: Math.min(1, totalSessions),   total: 1   },
@@ -25,8 +28,8 @@ export function AchievementsPanel() {
     { id: 's500',    icon: Award,     label: 'Legend',        description: '500 total sessions',                unlocked: totalSessions >= 500, progress: Math.min(500, totalSessions), total: 500 },
     { id: 'streak7', icon: Flame,     label: '7-Day Streak',  description: 'Focus 7 days in a row',             unlocked: streak >= 7,          progress: Math.min(7, streak),          total: 7   },
     { id: 'str30',   icon: Zap,       label: '30-Day Streak', description: 'Focus 30 days in a row',            unlocked: streak >= 30,         progress: Math.min(30, streak),         total: 30  },
-    { id: 'goal',    icon: Target,    label: 'Goal Crusher',  description: 'Hit your daily session goal',       unlocked: sessionCount >= dailyGoal, progress: Math.min(dailyGoal, sessionCount), total: dailyGoal },
-    { id: 'prod',    icon: TrendingUp, label: 'Productive',   description: 'Complete 5+ sessions in a day',    unlocked: sessionCount >= 5 || totalSessions >= 100, progress: Math.min(5, sessionCount), total: 5 },
+    { id: 'goal',    icon: Target,    label: 'Goal Crusher',  description: 'Hit your daily session goal',       unlocked: todaySessions >= dailyGoal, progress: Math.min(dailyGoal, todaySessions), total: dailyGoal },
+    { id: 'prod',    icon: TrendingUp, label: 'Productive',   description: 'Complete 5+ sessions in a day',    unlocked: todaySessions >= 5 || totalSessions >= 100, progress: Math.min(5, todaySessions), total: 5 },
   ]
 
   const unlockedCount = achievements.filter(a => a.unlocked).length

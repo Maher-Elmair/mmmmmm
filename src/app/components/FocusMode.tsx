@@ -16,12 +16,19 @@ const SVG_SIZE = 370
 const SVG_CENTER = SVG_SIZE / 2
 
 export function FocusMode() {
-  const {
-    isFocusMode, setFocusMode,
-    mode, timeLeft, isRunning, sessionCount, settings,
-    setIsRunning, requestStart, resetTimer, setMode,
-    activeTaskId, tasks,
-  } = useStore()
+  const isFocusMode = useStore(s => s.isFocusMode)
+  const setFocusMode = useStore(s => s.setFocusMode)
+  const mode = useStore(s => s.mode)
+  const timeLeft = useStore(s => s.timeLeft)
+  const isRunning = useStore(s => s.isRunning)
+  const sessionCount = useStore(s => s.sessionCount)
+  const settings = useStore(s => s.settings)
+  const setIsRunning = useStore(s => s.setIsRunning)
+  const requestStart = useStore(s => s.requestStart)
+  const resetTimer = useStore(s => s.resetTimer)
+  const setMode = useStore(s => s.setMode)
+  const activeTaskId = useStore(s => s.activeTaskId)
+  const tasks = useStore(s => s.tasks)
 
   const activeTask = tasks.find(t => t.id === activeTaskId)
   const totalTime = {

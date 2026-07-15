@@ -106,7 +106,11 @@ function GoalRow({ label, period, current, target, onUpdateTarget }: GoalRowProp
 }
 
 export function GoalsPanel() {
-  const { dailyGoal, weeklyGoal, monthlyGoal, dailyHistory, updateGoals } = useStore()
+  const dailyGoal = useStore(s => s.dailyGoal)
+  const weeklyGoal = useStore(s => s.weeklyGoal)
+  const monthlyGoal = useStore(s => s.monthlyGoal)
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const updateGoals = useStore(s => s.updateGoals)
 
   // Today's progress is read from the *persisted* per-day history so the
   // number survives page refresh AND rolls over correctly at midnight.

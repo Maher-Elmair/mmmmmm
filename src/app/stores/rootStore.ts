@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { DEFAULT_SETTINGS } from '../domain/pomodoro/timer.types'
+import { computeStreak, computeTotalSessions } from '../domain/stats/stats.rules'
 import { createSettingsSlice, type SettingsSlice } from './slices/settingsSlice'
 import { createTasksSlice, type TasksSlice } from './slices/tasksSlice'
 import { createStatsSlice, type StatsSlice } from './slices/statsSlice'
@@ -27,7 +28,7 @@ export const useRootStore = create<RootState>()(
     }),
     {
       name: 'focusflow-storage',
-      version: 3,
+      version: 5,
       migrate: (persisted: unknown) => {
         const p = (persisted ?? {}) as Partial<RootState>
         return {
@@ -35,6 +36,10 @@ export const useRootStore = create<RootState>()(
           settings: { ...DEFAULT_SETTINGS, ...(p.settings ?? {}) },
           sessionInProgress: false,
           isRunning: false,
+          endAt: null,
+          todaySessions: p.todaySessions ?? 0,
+          lastSessionDate: p.lastSessionDate ?? null,
+          lastTimerUpdatedAt: p.lastTimerUpdatedAt ?? null,
         } as RootState
       },
       partialize: (state) => ({
@@ -42,9 +47,12 @@ export const useRootStore = create<RootState>()(
         settings: state.settings,
         totalSessions: state.totalSessions,
         sessionCount: state.sessionCount,
+        todaySessions: state.todaySessions,
+        lastSessionDate: state.lastSessionDate,
         sessionInProgress: state.sessionInProgress,
         mode: state.mode,
         timeLeft: state.timeLeft,
+        endAt: state.endAt,
         activeTaskId: state.activeTaskId,
         dailyHistory: state.dailyHistory,
         sessionHistory: state.sessionHistory,
@@ -58,16 +66,42 @@ export const useRootStore = create<RootState>()(
         userName: state.userName,
         sessionStartedAt: state.sessionStartedAt,
         currentCycleId: state.currentCycleId,
+        lastTimerUpdatedAt: state.lastTimerUpdatedAt,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<RootState>
         const settings = { ...DEFAULT_SETTINGS, ...current.settings, ...(p.settings ?? {}) }
+
+        // Recompute todaySessions from sessionHistory if the date has changed.
+        const today = new Date().toISOString().split('T')[0]
+        const todaySessions = p.lastSessionDate === today
+          ? (p.todaySessions ?? 0)
+          : (p.sessionHistory ?? []).filter((s: { completedAt?: string }) => s.completedAt?.startsWith(today)).length
+
+        // Derive streak and totalSessions from dailyHistory (source of truth from Supabase).
+        const dailyHistory = p.dailyHistory ?? current.dailyHistory
+        const streak = computeStreak(dailyHistory, 0)
+        const totalSessions = computeTotalSessions(dailyHistory)
+
+        // Reconstruct timeLeft from endAt when the timer was running.
+        const isRunning = !!p.isRunning && !!p.endAt && p.endAt > Date.now()
+        const timeLeft = isRunning
+          ? Math.max(0, Math.round(((p.endAt as number) - Date.now()) / 1000))
+          : (p.timeLeft ?? current.timeLeft)
+
         return {
           ...current,
           ...p,
           settings,
           dailyGoal: settings.dailyGoal,
-          isRunning: false,
+          lastTimerUpdatedAt: p.lastTimerUpdatedAt ?? current.lastTimerUpdatedAt,
+          todaySessions,
+          lastSessionDate: p.lastSessionDate ?? current.lastSessionDate,
+          streak,
+          totalSessions,
+          isRunning,
+          timeLeft,
+          endAt: isRunning ? (p.endAt ?? null) : null,
         }
       },
     },

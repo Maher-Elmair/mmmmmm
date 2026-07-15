@@ -42,7 +42,7 @@ function fromDbStatus(s: DbTaskStatus): TaskStatus {
   return s === 'in_progress' ? 'active' : s
 }
 
-interface DbTaskRow {
+export interface DbTaskRow {
   id: string
   user_id: string
   title: string

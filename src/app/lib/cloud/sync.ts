@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Offline-First Sync Engine — Phase 2 (Tasks proof-of-concept).
+// Offline-First Sync Engine.
 //
 // Responsibilities
 //  • Track online/offline + sync status with a tiny pub/sub.
-//  • On sign-in:  pull tasks from Supabase, LWW-merge into local store,
-//                 then flush any queued local mutations.
+//  • On sign-in:  pull tasks/sessions/settings/notifications from Supabase,
+//                 LWW-merge into local store, then flush queued local mutations.
 //  • On sign-out: stop listeners and clear status.
 //  • Listen to `online` / `visibilitychange` to retry the queue.
 //
@@ -20,17 +20,9 @@ import { pushSessionOp, pushCycleOp } from './sessionsSync'
 import { pushNotificationOp, pullNotifications } from './notificationsSync'
 import { pushSettingsOp, pushProfileOp, pullSettings } from './settingsSync'
 import { startRealtime, stopRealtime, markLocalEcho } from './realtime'
-import {
-  enqueue,
-  markOpError,
-  queueSize,
-  readQueue,
-  removeOp,
-  writeQueue,
-  type SyncEntity,
-  type SyncOp,
-  type SyncOpType,
-} from './syncQueue'
+import { enqueue, markOpError, queueSize, readQueue, removeOp, writeQueue, type SyncEntity, type SyncOp, type SyncOpType } from './syncQueue'
+import { pullSessions } from './sessionsSync'
+import { computeStreak, computeTotalSessions } from '@/app/domain/stats/stats.rules'
 
 // ── Public types (kept stable) ──────────────────────────────────────────────
 
@@ -42,20 +34,6 @@ export type SyncStatus =
   | 'offline'
   | 'disabled'
 
-export type MigrationChoice = 'local' | 'cloud' | 'merge' | 'cancel'
-
-export interface MigrationSnapshotInfo {
-  updatedAt?: string | null
-  hasData: boolean
-  tasks?: number
-  sessions?: number
-}
-
-export interface MigrationPreview {
-  local: MigrationSnapshotInfo | null
-  cloud: MigrationSnapshotInfo | null
-}
-
 export interface SyncStateSnapshot {
   status: SyncStatus
   lastSyncedAt: number | null
@@ -63,9 +41,6 @@ export interface SyncStateSnapshot {
 }
 
 type StatusListener = (snapshot: SyncStateSnapshot) => void
-type MigrationHandler =
-  | ((preview: MigrationPreview) => Promise<MigrationChoice>)
-  | null
 
 // ── Internal state ──────────────────────────────────────────────────────────
 
@@ -150,12 +125,6 @@ export async function setCloudSyncEnabled(
   if (userId) await startSync(userId)
 }
 
-// Migration is being rebuilt; keep the setter as a no-op so existing callers
-// don't break.
-export function setMigrationHandler(_handler: MigrationHandler): void {
-  /* no-op until the migration path is reintroduced */
-}
-
 // ── Mutation enqueue (called from store actions) ────────────────────────────
 
 export function enqueueOp(
@@ -223,11 +192,15 @@ export async function startSync(userId?: string | null): Promise<void> {
   normalizeLocalTaskIds()
 
   // 1) Pull, merge, then 2) flush queue, then 3) subscribe to realtime.
+  // Hold flushing=true during the pull+merge window so enqueueOp-triggered
+  // fire-and-forget flushes can't race with the startup sequence.
+  flushing = true
   try {
     await pullAndMerge(userId)
     if (syncVersion !== myVersion) return // a newer startSync superseded us
     await pullSecondary(userId)
     if (syncVersion !== myVersion) return
+    flushing = false
     await flushQueue()
     if (syncVersion !== myVersion) return
     await startRealtime(userId)
@@ -235,6 +208,8 @@ export async function startSync(userId?: string | null): Promise<void> {
   } catch (e) {
     console.error('[sync] start failed', e)
     setState({ status: isOnline() ? 'error' : 'offline' })
+  } finally {
+    flushing = false
   }
 
   // Wire retry triggers.
@@ -338,18 +313,53 @@ async function pullSecondary(userId: string): Promise<void> {
   // Notifications: last-write-wins by id — server rows replace local ones, and
   // any local-only notifications remain (they'll push up via the queue).
   try {
-    const [remoteNotifs, remoteSettings] = await Promise.all([
+    const [remoteNotifs, remoteSettings, remoteSessions] = await Promise.all([
       pullNotifications(userId),
       pullSettings(userId),
+      pullSessions(userId),
     ])
     const state = useStore.getState()
-    const seen = new Set(remoteNotifs.map((n) => n.id))
-    const localOnly = state.notifications.filter((n) => !seen.has(n.id))
-    const mergedNotifs = [...remoteNotifs, ...localOnly].slice(0, 50)
+
+    // Merge session history: server sessions replace local hist-* entries by
+    // matching completedAt+taskId+mode within a 5-second window. Local-only
+    // entries (not yet synced) are preserved.
+    const seen = new Set<string>()
+    const mergedSessions: typeof state.sessionHistory = []
+    for (const remote of remoteSessions) {
+      const localMatch = state.sessionHistory.find((l) =>
+        l.id.startsWith('hist-') &&
+        l.taskId === remote.taskId &&
+        l.mode === remote.mode &&
+        Math.abs(new Date(l.completedAt).getTime() - new Date(remote.completedAt).getTime()) < 5000,
+      )
+      if (localMatch) {
+        // Replace local hist-* ID with the Supabase UUID.
+        mergedSessions.push({ ...localMatch, id: remote.id })
+        seen.add(localMatch.id)
+      } else if (!state.sessionHistory.some((l) => l.id === remote.id)) {
+        mergedSessions.push(remote)
+        seen.add(remote.id)
+      }
+    }
+    // Preserve local-only entries that weren't matched.
+    for (const local of state.sessionHistory) {
+      if (!seen.has(local.id)) mergedSessions.push(local)
+    }
+
+    // Resolve task titles from local tasks store. pullSessions returns null
+    // titles; match by taskId against the tasks we just merged.
+    const taskTitleById = new Map(state.tasks.map((t) => [t.id, t.title]))
+    const resolvedSessions = mergedSessions.map((s) =>
+      s.taskTitle === null && s.taskId
+        ? { ...s, taskTitle: taskTitleById.get(s.taskId) ?? null }
+        : s,
+    )
 
     const patch: Partial<ReturnType<typeof useStore.getState>> = {
-      notifications: mergedNotifs,
+      sessionHistory: resolvedSessions.slice(0, 200),
+      notifications: [...remoteNotifs, ...state.notifications.filter((n) => !new Set(remoteNotifs.map((r) => r.id)).has(n.id))].slice(0, 50),
     }
+
     if (remoteSettings) {
       patch.settings = remoteSettings.settings
       if (remoteSettings.dailyGoal !== undefined) patch.dailyGoal = remoteSettings.dailyGoal
@@ -366,16 +376,28 @@ async function pullSecondary(userId: string): Promise<void> {
         typeof window !== 'undefined'
           ? window.localStorage.getItem('focusflow:deviceId')
           : null
+      const localTimerUpdatedAt = useStore.getState().lastTimerUpdatedAt
       if (t && t.deviceId && t.deviceId !== myDevice) {
-        patch.mode = t.mode
-        patch.timeLeft = t.timeLeft
-        patch.isRunning = t.isRunning
-        patch.sessionInProgress = t.sessionInProgress
-        patch.sessionStartedAt = t.sessionStartedAt
-        patch.activeTaskId = t.activeTaskId
-        patch.sessionCount = t.sessionCount
+        // Skip if the remote snapshot is stale relative to local state.
+        if (localTimerUpdatedAt && t.updatedAt <= localTimerUpdatedAt) { /* skip */ } else {
+          patch.mode = t.mode
+          patch.timeLeft = t.timeLeft
+          patch.endAt = t.endAt
+          patch.isRunning = t.isRunning
+          patch.sessionInProgress = t.sessionInProgress
+          patch.sessionStartedAt = t.sessionStartedAt
+          patch.activeTaskId = t.activeTaskId
+          patch.sessionCount = t.sessionCount
+          patch.lastTimerUpdatedAt = t.updatedAt
+        }
       }
     }
+
+    // Derive totalSessions and streak from dailyHistory (source of truth).
+    const dailyHistory = patch.dailyHistory ?? state.dailyHistory
+    patch.totalSessions = computeTotalSessions(dailyHistory)
+    patch.streak = computeStreak(dailyHistory, 0)
+
     useStore.setState(patch)
   } catch (e) {
     console.warn('[sync] pullSecondary failed', e)

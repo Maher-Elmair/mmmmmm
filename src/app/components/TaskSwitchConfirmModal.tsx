@@ -7,6 +7,7 @@ import {
 } from './ui/alert-dialog'
 import { Button } from './ui/button'
 import { useStore } from '../stores/useStore'
+import { isInactiveStatus } from '../domain/tasks/task.rules'
 
 /**
  * Shown when the user picks a different task while a pomodoro session is
@@ -29,7 +30,8 @@ export function TaskSwitchConfirmModal() {
   const clear = () => setPendingTaskSwitch(null)
 
   const switchTo = (id: string) => {
-    // Commit the switch without re-triggering the guard.
+    const task = tasks.find((t) => t.id === id)
+    if (!task || isInactiveStatus(task.status)) return
     useStore.setState({ activeTaskId: id, pendingTaskSwitch: null })
   }
 

@@ -3,7 +3,11 @@ import { useStore } from '../stores/useStore'
 import { motion } from 'motion/react'
 
 export function TodaySummary() {
-  const { dailyGoal, streak, dailyHistory, tasks, settings } = useStore()
+  const dailyGoal = useStore(s => s.dailyGoal)
+  const streak = useStore(s => s.streak)
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const tasks = useStore(s => s.tasks)
+  const settings = useStore(s => s.settings)
 
   // Read today's numbers from persisted history so they survive refresh and
   // roll over at midnight correctly (no cumulative double-counting).

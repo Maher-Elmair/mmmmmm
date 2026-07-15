@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, memo } from 'react'
 import { useStore } from '../stores/useStore'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import {
@@ -21,8 +21,26 @@ const tooltipStyle = {
 }
 
 // ─── Responsive Heatmap ───────────────────────────────────────────────────────
-function ActivityHeatmap() {
-  const { dailyHistory, sessionCount } = useStore()
+const HeatmapCell = memo(function HeatmapCell({ day, cellSize }: { day: { date: string; sessions: number }; cellSize: number }) {
+  const s = day.sessions
+  const opacity = s === 0 ? 0 : s <= 2 ? 0.2 : s <= 5 ? 0.45 : s <= 7 ? 0.7 : 1
+  return (
+    <Tip label={`${day.date}: ${s} session${s !== 1 ? 's' : ''}`}>
+      <div
+        className="cursor-default rounded-sm transition-all hover:ring-1 hover:ring-primary/60"
+        style={{
+          width: cellSize,
+          height: cellSize,
+          backgroundColor: s === 0 ? 'var(--color-secondary)' : `rgba(249,115,22,${opacity})`,
+        }}
+      />
+    </Tip>
+  )
+})
+
+const ActivityHeatmap = memo(function ActivityHeatmap() {
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const todaySessions = useStore(s => s.todaySessions)
   const containerRef = useRef<HTMLDivElement>(null)
   const [cellSize, setCellSize] = useState(13)
 
@@ -47,7 +65,7 @@ function ActivityHeatmap() {
 
   const { weeks, monthLabels, total } = useMemo(() => {
     const historyMap = new Map(dailyHistory.map(d => [d.date, d.sessions]))
-    if (sessionCount > 0) historyMap.set(todayStr, (historyMap.get(todayStr) ?? 0) + sessionCount)
+    if (todaySessions > 0) historyMap.set(todayStr, (historyMap.get(todayStr) ?? 0) + todaySessions)
 
     const startDate = new Date(today)
     startDate.setDate(startDate.getDate() - 364)
@@ -72,7 +90,7 @@ function ActivityHeatmap() {
 
     const total = Array.from(historyMap.values()).reduce((s, v) => s + v, 0)
     return { weeks, monthLabels, total }
-  }, [dailyHistory, sessionCount, todayStr])
+  }, [dailyHistory, todaySessions, todayStr])
   const gap = Math.max(1, Math.floor(cellSize * 0.15))
 
   return (
@@ -130,33 +148,22 @@ function ActivityHeatmap() {
           {/* Cells */}
           {weeks.map((wk, wi) => (
             <div key={`wk-${wi}`} className="flex flex-col" style={{ gap }}>
-              {wk.map((day, di) => {
-                const s = day.sessions
-                const opacity = s === 0 ? 0 : s <= 2 ? 0.2 : s <= 5 ? 0.45 : s <= 7 ? 0.7 : 1
-                return (
-                  <Tip key={`${wi}-${di}`} label={`${day.date}: ${s} session${s !== 1 ? 's' : ''}`}>
-                    <div
-                      className="cursor-default rounded-sm transition-all hover:ring-1 hover:ring-primary/60"
-                      style={{
-                        width: cellSize,
-                        height: cellSize,
-                        backgroundColor: s === 0 ? 'var(--color-secondary)' : `rgba(249,115,22,${opacity})`,
-                      }}
-                    />
-                  </Tip>
-                )
-              })}
+              {wk.map((day, di) => (
+                <HeatmapCell key={`${wi}-${di}`} day={day} cellSize={cellSize} />
+              ))}
             </div>
           ))}
         </div>
       </div>
     </div>
   )
-}
+})
 
 // ─── Focus History ─────────────────────────────────────────────────────────────
 function FocusHistory() {
-  const { dailyHistory, sessionCount, settings } = useStore()
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const todaySessions = useStore(s => s.todaySessions)
+  const settings = useStore(s => s.settings)
   const now = new Date()
 
   const { historyData, avg } = useMemo(() => {
@@ -166,7 +173,7 @@ function FocusHistory() {
       const dateStr = d.toISOString().split('T')[0]
       const isToday = i === 13
       const entry = dailyHistory.find(h => h.date === dateStr)
-      const sessions = (entry?.sessions ?? 0) + (isToday ? sessionCount : 0)
+      const sessions = (entry?.sessions ?? 0) + (isToday ? todaySessions : 0)
       return {
         date: `${d.getMonth() + 1}/${d.getDate()}`,
         sessions,
@@ -175,7 +182,7 @@ function FocusHistory() {
     })
     const avg = historyData.reduce((s, d) => s + d.sessions, 0) / historyData.length
     return { historyData, avg }
-  }, [dailyHistory, sessionCount, settings.pomodoroDuration])
+  }, [dailyHistory, todaySessions, settings.pomodoroDuration])
 
   return (
     <div>
@@ -203,7 +210,9 @@ function FocusHistory() {
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function AnalyticsPanel() {
-  const { dailyHistory, sessionCount, settings } = useStore()
+  const dailyHistory = useStore(s => s.dailyHistory)
+  const todaySessions = useStore(s => s.todaySessions)
+  const settings = useStore(s => s.settings)
   const now = new Date()
 
   const weekData = useMemo(() => Array.from({ length: 7 }, (_, i) => {
@@ -212,9 +221,9 @@ export function AnalyticsPanel() {
     const dateStr = d.toISOString().split('T')[0]
     const isToday = i === 6
     const entry = dailyHistory.find(h => h.date === dateStr)
-    const sessions = (entry?.sessions ?? 0) + (isToday ? sessionCount : 0)
+    const sessions = (entry?.sessions ?? 0) + (isToday ? todaySessions : 0)
     return { day: DAY_LABELS[d.getDay() === 0 ? 6 : d.getDay() - 1], sessions, goal: settings.dailyGoal }
-  }), [dailyHistory, sessionCount, settings.dailyGoal])
+  }), [dailyHistory, todaySessions, settings.dailyGoal])
 
   const monthlyData = useMemo(() => Array.from({ length: 12 }, (_, i) => {
     const weekEnd = new Date(now)

@@ -3,6 +3,7 @@ import type { DailyStats, SessionHistoryItem } from '../../domain/stats/stats.ty
 import { computeStreak } from '../../domain/stats/stats.rules'
 import type { RootState } from '../rootStore'
 import { enqueueOp } from '../../lib/cloud/sync'
+import { buildSettingsPayload } from './settingsSlice'
 
 export interface StatsSlice {
   dailyHistory: DailyStats[]
@@ -31,16 +32,7 @@ export const createStatsSlice: StateCreator<RootState, [], [], StatsSlice> = (se
       settings:
         goals.daily !== undefined ? { ...state.settings, dailyGoal: goals.daily } : state.settings,
     }))
-    const s = get()
-    enqueueOp('setting', 'update', 'self', {
-      settings: s.settings,
-      dailyGoal: s.dailyGoal,
-      weeklyGoal: s.weeklyGoal,
-      monthlyGoal: s.monthlyGoal,
-      soundVolume: s.soundVolume,
-      activeSounds: s.activeSounds,
-      userName: s.userName,
-    })
+    enqueueOp('setting', 'update', 'self', buildSettingsPayload(get()))
   },
 })
 

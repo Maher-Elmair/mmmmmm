@@ -105,7 +105,10 @@ function SliderRow({
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export function SettingsDrawer() {
-  const { isSettingsOpen, setSettingsOpen, settings, updateSettings } = useStore()
+  const isSettingsOpen = useStore(s => s.isSettingsOpen)
+  const setSettingsOpen = useStore(s => s.setSettingsOpen)
+  const settings = useStore(s => s.settings)
+  const updateSettings = useStore(s => s.updateSettings)
   const [resetOpen, setResetOpen] = useState(false)
 
   const applyTheme = (t: 'dark' | 'light' | 'system') => {

@@ -4,7 +4,7 @@ import { durationsFor, minutesFor, nextBreakMode } from '../../domain/pomodoro/t
 import type { Task } from '../../domain/tasks/task.types'
 import { incrementPomodoro, isSelectable, shouldAutoComplete } from '../../domain/tasks/task.rules'
 import type { DailyStats, SessionHistoryItem } from '../../domain/stats/stats.types'
-import { appendDailyPomodoro, computeStreak, pushHistory } from '../../domain/stats/stats.rules'
+import { appendDailyPomodoro, computeStreak, computeTotalSessions, pushHistory } from '../../domain/stats/stats.rules'
 import type { NotificationItem } from '../../domain/notifications/notification.types'
 import {
   breakCompleteNotif,
@@ -21,32 +21,31 @@ import { newUuid } from '../../lib/cloud/tasksSync'
 import { enqueueOp } from '../../lib/cloud/sync'
 import { toDbSessionType } from '../../lib/cloud/sessionsSync'
 import { getDeviceId } from '../../lib/cloud/realtime'
+import { useRootStore as useStore } from '../rootStore'
+import { buildSettingsPayload } from './settingsSlice'
 import type { RootState } from '../rootStore'
 
 // Broadcast the current timer snapshot to user_settings.extra.activeTimer so
 // other signed-in devices can mirror it read-only. Called on transitions only
 // (start/pause/reset/mode-switch/complete), never on per-second ticks.
 function broadcastTimer(state: RootState): void {
+  const updatedAt = new Date().toISOString()
   enqueueOp('setting', 'update', 'self', {
-    settings: state.settings,
-    dailyGoal: state.dailyGoal,
-    weeklyGoal: state.weeklyGoal,
-    monthlyGoal: state.monthlyGoal,
-    soundVolume: state.soundVolume,
-    activeSounds: state.activeSounds,
-    userName: state.userName,
+    ...buildSettingsPayload(state),
     activeTimer: {
       deviceId: getDeviceId(),
       mode: state.mode,
       timeLeft: state.timeLeft,
+      endAt: state.endAt,
       isRunning: state.isRunning,
       sessionInProgress: state.sessionInProgress,
       sessionStartedAt: state.sessionStartedAt,
       activeTaskId: state.activeTaskId,
       sessionCount: state.sessionCount,
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     },
   })
+  useStore.setState({ lastTimerUpdatedAt: updatedAt })
 }
 
 // ── completeSession helpers ──────────────────────────────────────────────────
@@ -159,14 +158,22 @@ function createAndSyncNotification(notif: NotificationItem): NotificationItem {
   return notif
 }
 
+function todayKey(): string {
+  return new Date().toISOString().split('T')[0]
+}
+
 export interface TimerSlice {
   mode: TimerMode
   timeLeft: number
   isRunning: boolean
   sessionCount: number
+  todaySessions: number
+  lastSessionDate: string | null
   sessionInProgress: boolean
   sessionStartedAt: string | null
   currentCycleId: string | null
+  lastTimerUpdatedAt: string | null
+  endAt: number | null
   setMode: (mode: TimerMode) => void
   setTimeLeft: (time: number) => void
   setIsRunning: (running: boolean) => void
@@ -180,9 +187,13 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
   timeLeft: 25 * 60,
   isRunning: false,
   sessionCount: 0,
+  todaySessions: 0,
+  lastSessionDate: null,
   sessionInProgress: false,
   sessionStartedAt: null,
   currentCycleId: null,
+  lastTimerUpdatedAt: null,
+  endAt: null,
 
   setMode: (mode) => {
     const state = get()
@@ -193,6 +204,7 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
       isRunning: false,
       sessionInProgress: false,
       sessionStartedAt: null,
+      endAt: null,
     })
     if (state.mode !== mode) playUiSound('modeSwitch')
     broadcastTimer(get())
@@ -202,7 +214,7 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
 
   setIsRunning: (isRunning) => {
     const prev = get().isRunning
-    set({ isRunning })
+    set({ isRunning, endAt: isRunning ? get().endAt : null })
     if (isRunning && !prev) playUiSound('start')
     else if (!isRunning && prev) playUiSound('pause')
     if (prev !== isRunning) broadcastTimer(get())
@@ -222,7 +234,9 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
         return
       }
     }
-    const patch: Partial<RootState> = { sessionInProgress: true }
+    const now = Date.now()
+    const endAt = now + state.timeLeft * 1000
+    const patch: Partial<RootState> = { sessionInProgress: true, endAt }
     if (!state.sessionStartedAt) patch.sessionStartedAt = new Date().toISOString()
     set(patch as RootState)
     state.setIsRunning(true)
@@ -237,6 +251,7 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
       isRunning: false,
       sessionInProgress: false,
       sessionStartedAt: null,
+      endAt: null,
     })
     playUiSound('reset')
     broadcastTimer(get())
@@ -263,6 +278,10 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
 
     if (mode === 'pomodoro') {
       const newCount = state.sessionCount + 1
+      const today = todayKey()
+      const newTodaySessions = state.lastSessionDate === today
+        ? state.todaySessions + 1
+        : 1
 
       // 3. Update task's completed pomodoro count locally + sync to cloud
       const updatedTasks = syncTaskCompletionToCloud(
@@ -292,9 +311,12 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
       const nextCompleted = activeTask ? activeTask.completedPomodoros + 1 : 0
 
       // 9. Apply all state updates
+      const newTotalSessions = state.totalSessions + 1
       set({
         sessionCount: newCount,
-        totalSessions: state.totalSessions + 1,
+        todaySessions: newTodaySessions,
+        lastSessionDate: today,
+        totalSessions: newTotalSessions,
         tasks: updatedTasks,
         dailyHistory,
         sessionHistory: newSessionHistory,
@@ -303,6 +325,7 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
         isRunning: false,
         sessionInProgress: false,
         sessionStartedAt: null,
+        endAt: null,
         currentCycleId: nextCycleId,
         mode: settings.autoStartBreaks ? nextMode : 'pomodoro',
         timeLeft: settings.autoStartBreaks ? nextTime : settings.pomodoroDuration * 60,
@@ -315,11 +338,19 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
           taskCompleted: shouldAutoComplete(activeTask, nextCompleted),
         },
       })
+      // Sync totalSessions to Supabase so other devices see the updated count.
+      enqueueOp('setting', 'update', 'self', {
+        ...buildSettingsPayload({ ...get(), totalSessions: newTotalSessions }),
+      })
     } else {
       // Break session: record in Supabase (no cycle binding)
       syncSessionRowToCloud(null, null, mode, durationSeconds, startedAt, nowIso)
 
       const notif = createAndSyncNotification(breakCompleteNotif())
+      const today = todayKey()
+      const newTodaySessions = state.lastSessionDate === today
+        ? state.todaySessions
+        : 0
       set({
         mode: 'pomodoro',
         timeLeft: settings.pomodoroDuration * 60,
@@ -327,7 +358,10 @@ export const createTimerSlice: StateCreator<RootState, [], [], TimerSlice> = (se
         sessionInProgress: settings.autoStartSessions,
         sessionStartedAt: settings.autoStartSessions ? nowIso : null,
         sessionHistory: newSessionHistory,
+        todaySessions: newTodaySessions,
+        lastSessionDate: today,
         notifications: pushNotification(state.notifications, notif),
+        endAt: null,
       })
     }
     broadcastTimer(get())

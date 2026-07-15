@@ -46,7 +46,12 @@ export function appendDailyPomodoro(history: DailyStats[], minutes: number): Dai
 export function pushHistory(
   history: SessionHistoryItem[],
   item: SessionHistoryItem,
-  max = 50,
+  max = 200,
 ): SessionHistoryItem[] {
   return [item, ...history].slice(0, max)
+}
+
+/** Sum all sessions across daily history entries. */
+export function computeTotalSessions(history: DailyStats[]): number {
+  return history.reduce((sum, d) => sum + d.sessions, 0)
 }

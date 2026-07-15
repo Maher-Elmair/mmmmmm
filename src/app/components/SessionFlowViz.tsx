@@ -3,7 +3,9 @@ import { Coffee, Activity } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip'
 
 export function SessionFlowViz() {
-  const { sessionCount, mode, isRunning } = useStore()
+  const sessionCount = useStore(s => s.sessionCount)
+  const mode = useStore(s => s.mode)
+  const isRunning = useStore(s => s.isRunning)
 
   const cyclePosition = sessionCount % 4
   const currentPomodoro = cyclePosition + (mode === 'pomodoro' ? 1 : 0)

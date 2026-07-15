@@ -15,11 +15,15 @@ import {
 } from 'lucide-react'
 
 export function CommandPalette() {
-  const {
-    isCommandPaletteOpen, setCommandPaletteOpen,
-    setSettingsOpen, setFocusMode, requestStart, isRunning,
-    setMode, updateSettings, settings,
-  } = useStore()
+  const isCommandPaletteOpen = useStore(s => s.isCommandPaletteOpen)
+  const setCommandPaletteOpen = useStore(s => s.setCommandPaletteOpen)
+  const setSettingsOpen = useStore(s => s.setSettingsOpen)
+  const setFocusMode = useStore(s => s.setFocusMode)
+  const requestStart = useStore(s => s.requestStart)
+  const isRunning = useStore(s => s.isRunning)
+  const setMode = useStore(s => s.setMode)
+  const updateSettings = useStore(s => s.updateSettings)
+  const settings = useStore(s => s.settings)
 
   // Press "K" to open (ignored when typing in inputs)
   useEffect(() => {

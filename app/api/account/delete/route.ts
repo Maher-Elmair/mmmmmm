@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/integrations/supabase/auth-helpers'
+import { requireAuth, createServiceRoleClient } from '@/integrations/supabase/auth-helpers'
 
 export async function POST(request: Request) {
   try {
@@ -8,7 +8,9 @@ export async function POST(request: Request) {
     // Best-effort wipe of app data first (cascades from auth.users handle most child rows)
     await supabase.from('profiles').delete().eq('id', userId)
 
-    const { error } = await supabase.auth.admin.deleteUser(userId)
+    // admin.deleteUser requires service-role privileges — publishable key won't work
+    const adminClient = createServiceRoleClient()
+    const { error } = await adminClient.auth.admin.deleteUser(userId)
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }

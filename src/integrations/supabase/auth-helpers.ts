@@ -7,6 +7,24 @@ export interface AuthContext {
   userId: string
 }
 
+/**
+ * Creates a Supabase client with the service-role key for admin operations
+ * (e.g. auth.admin.deleteUser). This client bypasses RLS — use only for
+ * server-side operations that require elevated privileges.
+ */
+export function createServiceRoleClient(): ReturnType<typeof createClient<Database>> {
+  const SUPABASE_URL = process.env.SUPABASE_URL
+  const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY
+
+  if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SECRET_KEY for service-role client')
+  }
+
+  return createClient<Database>(SUPABASE_URL, SUPABASE_SECRET_KEY, {
+    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
+  })
+}
+
 export async function requireAuth(request: Request): Promise<AuthContext> {
   const SUPABASE_URL = process.env.SUPABASE_URL
   const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY

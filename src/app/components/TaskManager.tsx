@@ -130,7 +130,8 @@ function AddTaskForm({ onAdd, onCancel, pomodoroDuration }: AddTaskFormProps) {
 
 // ─── Edit Task Sheet ──────────────────────────────────────────────────────────
 function EditTaskSheet({ task, onClose }: { task: Task; onClose: () => void }) {
-  const { updateTask, settings } = useStore()
+  const updateTask = useStore(s => s.updateTask)
+  const settings = useStore(s => s.settings)
   const { register, handleSubmit, watch, setValue, formState: { isDirty } } = useForm<TaskFormValues>({
     defaultValues: {
       title: task.title,

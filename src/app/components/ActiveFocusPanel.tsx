@@ -11,7 +11,11 @@ const PRIORITY_COLORS = {
 }
 
 export function ActiveFocusPanel() {
-  const { activeTaskId, tasks, isRunning, settings, mode } = useStore()
+  const activeTaskId = useStore(s => s.activeTaskId)
+  const tasks = useStore(s => s.tasks)
+  const isRunning = useStore(s => s.isRunning)
+  const settings = useStore(s => s.settings)
+  const mode = useStore(s => s.mode)
   const activeTask = tasks.find(t => t.id === activeTaskId && t.status !== 'completed' && t.status !== 'archived')
 
   if (!activeTask) return (

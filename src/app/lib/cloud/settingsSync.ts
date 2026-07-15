@@ -13,6 +13,7 @@ export interface ActiveTimerSnapshot {
   deviceId: string
   mode: 'pomodoro' | 'shortBreak' | 'longBreak'
   timeLeft: number
+  endAt: number | null
   isRunning: boolean
   sessionInProgress: boolean
   sessionStartedAt: string | null

@@ -5,7 +5,12 @@ import { motion } from 'motion/react'
 import { CheckCircle2, Coffee, Play, Trophy } from 'lucide-react'
 
 export function SessionCompletionModal() {
-  const { completionModal, setCompletionModal, setMode, setIsRunning, settings, updateTask } = useStore()
+  const completionModal = useStore(s => s.completionModal)
+  const setCompletionModal = useStore(s => s.setCompletionModal)
+  const setMode = useStore(s => s.setMode)
+  const setIsRunning = useStore(s => s.setIsRunning)
+  const settings = useStore(s => s.settings)
+  const updateTask = useStore(s => s.updateTask)
 
   const isOpen = completionModal?.show ?? false
   const taskCompleted = completionModal?.taskCompleted ?? false

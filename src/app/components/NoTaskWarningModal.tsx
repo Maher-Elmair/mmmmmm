@@ -6,7 +6,9 @@ import {
 import { useStore } from '../stores/useStore'
 
 export function NoTaskWarningModal() {
-  const { noTaskWarning, setNoTaskWarning, setIsRunning } = useStore()
+  const noTaskWarning = useStore(s => s.noTaskWarning)
+  const setNoTaskWarning = useStore(s => s.setNoTaskWarning)
+  const setIsRunning = useStore(s => s.setIsRunning)
 
   const handlePickTask = () => {
     setNoTaskWarning(false)
